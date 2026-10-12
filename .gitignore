@@ -6,6 +6,7 @@ mcd-ceo-plan.json
 .env
 .env.*
 mcp-config.json
+.mcd-token
 *_token.txt
 
 # 工具与临时目录

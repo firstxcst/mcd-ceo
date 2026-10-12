@@ -33,45 +33,60 @@
 node ceo.mjs --demo
 ```
 
-`--demo` 使用内置示例数据生成一份完整报告（就是你上面看到的那张），用来判断值不值得花两分钟配置。
+`--demo` 使用内置示例数据生成一份完整报告（就是你上面看到的那张），用来判断值不值得申请一个 Token。
 
 ## 快速开始
 
 ### 1. 申请 MCP Token
 
-前往 [麦当劳 MCP 开放平台](https://open.mcd.cn/mcp)，手机号登录 → 控制台 → 激活。
+前往 [麦当劳 MCP 开放平台](https://open.mcd.cn/mcp)，手机号登录 → 右上角「控制台」→ 激活 → 复制 Token。
 
-### 2. 生成你的经营诊断报告
-
-先获取代码（`git clone` 本仓库，或下载 ZIP 解压），进入 `mcd-ceo` 目录。
+### 2. 一条命令，生成报告
 
 运行环境只需 Node.js 18 或以上（用到内置 `fetch` 与 `readline/promises`）。**零依赖，无需 `npm install`，无需构建。**
 
 ```bash
-# 方式一：直接传 Token
-node ceo.mjs --token 你的_TOKEN
-
-# 方式二：环境变量（推荐，避免 Token 进入命令历史）
-# Windows PowerShell
-$env:MCD_MCP_TOKEN="你的_TOKEN"; node ceo.mjs
-# macOS / Linux
-MCD_MCP_TOKEN=你的_TOKEN node ceo.mjs
+git clone https://github.com/firstxcst/mcd-ceo.git
+cd mcd-ceo
+node ceo.mjs
 ```
 
-运行后会先在终端进入「董事会」——列出三张战略卡，你选一张。然后生成 `mcd-ceo-report-<年份>.html`，浏览器打开即可。
+**首次运行**会提示你粘贴 Token，粘贴后自动保存在本机 `.mcd-token`（不会被提交）。之后直接 `node ceo.mjs` 即可，不必再输入。
 
-> **想跳过交互？** 用 `--strategy efficiency` 直接指定战略，适合脚本或自动化调用。
+流程是：终端进入「董事会」→ 你选一张战略卡 → 生成 `mcd-ceo-report-<年份>.html` → **自动在浏览器打开**。
 
-### 3. 参数一览
+> **想先看效果、不申请 Token？** 运行 `node ceo.mjs --demo`，用内置示例数据出一份完整报告。
+
+<details>
+<summary><b>进阶用法</b>（参数一览 / 环境变量 / 自动化调用）</summary>
+
+<br>
 
 | 参数 | 说明 |
 | --- | --- |
 | `--demo` | 使用内置示例数据（无需 Token） |
-| `--token <T>` | 麦当劳 MCP Token（也可用环境变量 `MCD_MCP_TOKEN`） |
+| `--token <T>` | 临时指定 Token，优先级最高（也可用环境变量 `MCD_MCP_TOKEN`） |
 | `--strategy <S>` | 直接指定战略：`efficiency` / `explore` / `upgrade`，跳过交互 |
 | `--year <YYYY>` | 本任期年份，默认当前年份 |
 | `--out <PATH>` | 输出路径，默认 `mcd-ceo-report-<年份>.html` |
+| `--no-open` | 生成后不自动打开浏览器（适合 CI / 服务器） |
 | `--help` | 查看帮助 |
+
+**Token 读取顺序**：`--token` 参数 → 环境变量 `MCD_MCP_TOKEN` → 本机 `.mcd-token` 文件 → 交互式引导。
+
+**自动化 / CI 调用**推荐用环境变量，并关闭浏览器自动打开：
+
+```bash
+# Windows PowerShell
+$env:MCD_MCP_TOKEN="你的_TOKEN"; node ceo.mjs --no-open
+
+# macOS / Linux
+MCD_MCP_TOKEN=你的_TOKEN node ceo.mjs --no-open
+```
+
+**清除本机保存的 Token**：删除项目目录下的 `.mcd-token` 文件即可。
+
+</details>
 
 ## 报告里有什么
 
@@ -141,7 +156,7 @@ mcd-ceo/
 
 ## 隐私说明
 
-- MCP Token **只在本机内存中使用**，不写入任何文件，不上传到任何第三方服务。
+- MCP Token **保存在本机 `.mcd-token` 文件**（仅首次运行时写入一次，Linux / macOS 下权限为 600），不上传任何第三方服务。该文件已列入 `.gitignore`，不会被提交；删除它即可清除本机保存的 Token。
 - 所有订单数据只在本地完成计算与渲染，**不离开你的电脑**。
 - 生成的 HTML 是**完全静态的单文件**，不含外部脚本、字体或追踪代码，可离线打开、放心分享。
 - `mcd-ceo-plan.json` 只保存你自己设定的目标数值，不含任何账户凭证。
@@ -152,8 +167,11 @@ mcd-ceo/
 **Q：为什么报告里没有订单数据？**
 A：不同账户的历史订单可见范围不同。若当年没有记录，程序会自动退化为使用全部历史账目，并在报告顶部给出提示。
 
+**Q：Token 保存在哪里？想换一个怎么办？**
+A：首次运行时保存在项目目录的 `.mcd-token`（已列入 `.gitignore`，不会被提交）。想换 Token，编辑或删除该文件即可；也可以用 `--token` 临时覆盖，或设环境变量 `MCD_MCP_TOKEN`。
+
 **Q：报错 `HTTP 401`？**
-A：Token 无效或已过期，请到 [开放平台](https://open.mcd.cn/mcp) 重新获取。
+A：Token 无效或已过期，请到 [开放平台](https://open.mcd.cn/mcp) 重新获取。若本机保存了旧 Token，记得同步更新 `.mcd-token`。
 
 **Q：报错 `HTTP 429`？**
 A：触发限流（每 Token 每分钟 600 次）。本项目一次生成只发起 4 次请求，正常使用不会触发。

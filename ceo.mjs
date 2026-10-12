@@ -8,22 +8,25 @@
 // 下次运行时会自动回访对比，形成经营闭环。
 //
 // 用法：
-//   node ceo.mjs --demo                                  预览效果（内置示例数据，无需 Token）
-//   node ceo.mjs --token <TOKEN>                          生成你的经营诊断报告
-//   node ceo.mjs --token <TOKEN> --strategy efficiency    直接指定战略，跳过交互
+//   node ceo.mjs                                          生成报告（首次运行会引导输入 Token）
+//   node ceo.mjs --demo                                   预览效果（内置示例数据，无需 Token）
+//   node ceo.mjs --strategy efficiency                    直接指定战略，跳过交互
 //
-// Token 也可通过环境变量提供：MCD_MCP_TOKEN
+// Token 读取顺序：--token 参数 → 环境变量 MCD_MCP_TOKEN → 本机 .mcd-token 文件。
+// 三者皆无且处于交互终端时，会引导用户粘贴一次并保存到本机。
 
 import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createInterface } from "node:readline/promises";
+import { exec } from "node:child_process";
 import { McdMcpClient } from "./mcp-client.mjs";
 import { renderHtml } from "./render.mjs";
 import { buildDemoOrders, demoAccount, demoPrizes, demoCoupons } from "./demo-data.mjs";
 
 const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 const PLAN_FILE = "mcd-ceo-plan.json";
+const TOKEN_FILE = ".mcd-token";
 const DORMANT_DAYS = 90;
 
 // ---------------------------------------------------------------- 参数解析
@@ -36,6 +39,7 @@ function parseArgs(argv) {
     out: "",
     strategy: "",
     year: new Date().getFullYear(),
+    noOpen: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
@@ -45,8 +49,58 @@ function parseArgs(argv) {
     else if (flag === "--out") args.out = argv[++i] ?? "";
     else if (flag === "--strategy") args.strategy = argv[++i] ?? "";
     else if (flag === "--year") args.year = Number(argv[++i]);
+    else if (flag === "--no-open") args.noOpen = true;
   }
   return args;
+}
+
+// ------------------------------------------------------------ 本地凭据
+
+/** 读取本机保存的 Token（首次运行引导时写入） */
+function readTokenFile(dir) {
+  const path = resolve(dir, TOKEN_FILE);
+  if (!existsSync(path)) return "";
+  try {
+    return readFileSync(path, "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+/** 把 Token 保存到本机，权限 600（仅当前用户可读） */
+function writeTokenFile(dir, token) {
+  const path = resolve(dir, TOKEN_FILE);
+  writeFileSync(path, `${token}\n`, { encoding: "utf8", mode: 0o600 });
+  return path;
+}
+
+/** 首次运行的引导：请用户粘贴一次 Token */
+async function promptForToken() {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    console.log("");
+    console.log("────────────────────────────────────────────");
+    console.log("  首次运行，需要你的麦当劳 MCP Token");
+    console.log("────────────────────────────────────────────");
+    console.log("  申请地址：https://open.mcd.cn/mcp");
+    console.log("  手机号登录 → 右上角「控制台」→ 激活 → 复制 Token");
+    console.log("");
+    const answer = (await rl.question("请粘贴 Token 后回车：")).trim();
+    return answer;
+  } finally {
+    rl.close();
+  }
+}
+
+/** 用系统默认程序打开文件（失败静默忽略，不影响主流程） */
+function openInBrowser(filePath) {
+  const command =
+    process.platform === "win32"
+      ? `start "" "${filePath}"`
+      : process.platform === "darwin"
+        ? `open "${filePath}"`
+        : `xdg-open "${filePath}"`;
+  exec(command, () => {});
 }
 
 function printHelp() {
@@ -54,18 +108,20 @@ function printHelp() {
 麦门总裁 —— 你名下有一家麦当劳，它只有一个顾客，你自己。
 
 用法：
-  node ceo.mjs --demo                          用示例数据预览（无需 Token）
-  node ceo.mjs --token <TOKEN>                 生成你的经营诊断报告
-  node ceo.mjs --token <TOKEN> --strategy <S>  指定战略，跳过交互
+  node ceo.mjs                       生成你的经营诊断报告（首次运行会引导输入 Token）
+  node ceo.mjs --demo                用示例数据预览（无需 Token）
+  node ceo.mjs --strategy efficiency 直接指定战略，跳过交互
 
 参数：
   --demo            使用内置示例数据
-  --token <T>       麦当劳 MCP Token（也可用环境变量 MCD_MCP_TOKEN）
+  --token <T>       临时指定 Token（优先级最高；也可用环境变量 MCD_MCP_TOKEN）
   --strategy <S>    直接指定战略：efficiency | explore | upgrade
   --year <YYYY>     本任期年份，默认当前年份
   --out <PATH>      输出文件路径，默认 mcd-ceo-report-<年份>.html
+  --no-open         生成后不自动打开浏览器
   --help            显示本帮助
 
+Token 会保存在本机 .mcd-token 文件（不会被提交），删除该文件即可清除。
 申请 MCP Token：https://open.mcd.cn/mcp
 `);
 }
@@ -620,12 +676,27 @@ async function main() {
     orders = buildDemoOrders(args.year);
     extras = { account: demoAccount, prizes: demoPrizes, coupons: demoCoupons, source: "示例数据（--demo 模式）" };
   } else {
-    if (!args.token) {
-      console.error("✖ 缺少 MCP Token。使用 --token <TOKEN> 或设置环境变量 MCD_MCP_TOKEN，");
-      console.error("  或先用 --demo 预览效果。申请地址：https://open.mcd.cn/mcp");
+    // Token 读取顺序：命令行参数 / 环境变量（两者已在 parseArgs 中合并）→ 本机文件 → 首次引导
+    let token = args.token || readTokenFile(process.cwd());
+
+    if (!token && process.stdin.isTTY) {
+      token = await promptForToken();
+      if (token) {
+        const saved = writeTokenFile(process.cwd(), token);
+        console.log(`\n✔ Token 已保存到 ${saved}`);
+        console.log("  下次直接运行 node ceo.mjs 即可，无需再次输入。");
+      }
+    }
+
+    if (!token) {
+      console.error("✖ 缺少 MCP Token。");
+      console.error("  首次使用：直接运行 node ceo.mjs，按提示粘贴 Token；");
+      console.error("  也可用 --token <TOKEN> 或环境变量 MCD_MCP_TOKEN 临时指定。");
+      console.error("  申请地址：https://open.mcd.cn/mcp");
       process.exit(1);
     }
-    const client = new McdMcpClient({ token: args.token });
+
+    const client = new McdMcpClient({ token });
     const fetched = await fetchFromMcp(client);
     orders = fetched.orders;
     extras = { account: fetched.account, prizes: fetched.prizes, coupons: fetched.coupons, source: fetched.source };
@@ -676,7 +747,13 @@ async function main() {
   writeFileSync(outPath, html, "utf8");
 
   console.log(`\n✔ 经营诊断报告已签发：${outPath}`);
-  console.log("  用浏览器打开即可查看，可一键保存为 PDF 或截图分享。");
+  if (args.noOpen) {
+    console.log("  用浏览器打开即可查看，可一键保存为 PDF 或截图分享。");
+  } else {
+    openInBrowser(outPath);
+    console.log("  已用默认浏览器打开，可直接保存为 PDF 或截图分享。");
+    console.log("  （若未自动打开，请手动访问上面的路径）");
+  }
 }
 
 // 仅在作为入口脚本直接运行时执行，便于被测试或作为模块引入
