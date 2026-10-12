@@ -1,0 +1,15 @@
+# 运行产物（每次执行都会重新生成，不入库）
+mcd-ceo-report-*.html
+mcd-ceo-plan.json
+
+# 本地凭据（谨防误提交）
+.env
+.env.*
+mcp-config.json
+*_token.txt
+
+# 工具与临时目录
+node_modules/
+.chrome-profile/
+.DS_Store
+Thumbs.db
